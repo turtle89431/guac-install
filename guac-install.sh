@@ -15,7 +15,7 @@ fi
 
 # Version number of Guacamole to install
 # Homepage ~ https://guacamole.apache.org/releases/
-GUACVERSION="1.1.0"
+GUACVERSION="1.3.0"
 
 # Latest Version of MySQL Connector/J if manual install is required (if libmariadb-java/libmysql-java is not available via apt)
 # Homepage ~ https://dev.mysql.com/downloads/connector/j/
@@ -212,9 +212,9 @@ if [ "${installMySQL}" = true ]; then
     debconf-set-selections <<< "mysql-server mysql-server/root_password_again password ${mysqlRootPwd}"
 fi
 
-# Different version of Ubuntu and Debian have different package names...
+# Different version of Ubuntu/Linux Mint and Debian have different package names...
 source /etc/os-release
-if [[ "${NAME}" == "Ubuntu" ]]; then
+if [[ "${NAME}" == "Ubuntu" ]] || [[ "${NAME}" == "Linux Mint" ]]; then
     # Ubuntu > 18.04 does not include universe repo by default
     # Add the "Universe" repo, don't update
     add-apt-repository -yn universe
@@ -233,9 +233,9 @@ if [[ "${NAME}" == "Ubuntu" ]]; then
     else
         MYSQL="mysql-client"
     fi
-elif [[ "${NAME}" == *"Debian"* ]] || [[ "${NAME}" == *"Raspbian GNU/Linux"* ]] || [[ "${NAME}" == *"Kali GNU/Linux"* ]]; then
+elif [[ "${NAME}" == *"Debian"* ]] || [[ "${NAME}" == *"Raspbian GNU/Linux"* ]] || [[ "${NAME}" == *"Kali GNU/Linux"* ]] || [[ "${NAME}" == "LMDE" ]]; then
     JPEGTURBO="libjpeg62-turbo-dev"
-    if [[ "${PRETTY_NAME}" == *"stretch"* ]] || [[ "${PRETTY_NAME}" == *"buster"* ]] || [[ "${PRETTY_NAME}" == *"Kali GNU/Linux Rolling"* ]]; then
+    if [[ "${PRETTY_NAME}" == *"stretch"* ]] || [[ "${PRETTY_NAME}" == *"buster"* ]] || [[ "${PRETTY_NAME}" == *"Kali GNU/Linux Rolling"* ]] || [[ "${NAME}" == "LMDE" ]]; then
         LIBPNG="libpng-dev"
     else
         LIBPNG="libpng12-dev"
@@ -249,7 +249,7 @@ elif [[ "${NAME}" == *"Debian"* ]] || [[ "${NAME}" == *"Raspbian GNU/Linux"* ]] 
         MYSQL="default-mysql-client"
     fi
 else
-    echo "Unsupported distribution - Debian, Kali, Raspbian or Ubuntu only"
+    echo "Unsupported distribution - Debian, Kali, Raspbian, Linux Mint or Ubuntu only"
     exit 1
 fi
 
@@ -302,11 +302,9 @@ echo -e "${BLUE}Installing packages. This might take a few minutes...${NC}"
 export DEBIAN_FRONTEND=noninteractive
 
 # Required packages
-apt-get -y install build-essential libcairo2-dev ${JPEGTURBO} ${LIBPNG} libossp-uuid-dev libavcodec-dev libavutil-dev \
+apt-get -y install build-essential libcairo2-dev ${JPEGTURBO} ${LIBPNG} libossp-uuid-dev libavcodec-dev libavformat-dev libavutil-dev \
 libswscale-dev freerdp2-dev libpango1.0-dev libssh2-1-dev libtelnet-dev libvncserver-dev libpulse-dev libssl-dev \
-libvorbis-dev libwebp-dev libwebsockets-dev \
-freerdp2-x11 libtool-bin ghostscript dpkg-dev \
-wget crudini \
+libvorbis-dev libwebp-dev libwebsockets-dev freerdp2-x11 libtool-bin ghostscript dpkg-dev wget crudini libc-bin \
 ${MYSQL} ${LIBJAVA} ${TOMCAT} &>> ${LOG}
 
 # If apt fails to run completely the rest of this isn't going to work...
@@ -414,8 +412,13 @@ echo -e "${BLUE}Building Guacamole-Server with GCC $( gcc --version | head -n1 |
 echo -e "${BLUE}Configuring Guacamole-Server. This might take a minute...${NC}"
 ./configure --with-init-dir=/etc/init.d  &>> ${LOG}
 if [ $? -ne 0 ]; then
-    echo -e "${RED}Failed. See ${LOG}${NC}" 1>&2
-    exit 1
+    echo "Failed to configure guacamole-server"
+    echo "Trying again with --enable-allow-freerdp-snapshots"
+    ./configure --with-init-dir=/etc/init.d --enable-allow-freerdp-snapshots
+    if [ $? -ne 0 ]; then
+        echo "Failed to configure guacamole-server - again"
+        exit
+    fi
 else
     echo -e "${GREEN}OK${NC}"
 fi
@@ -656,7 +659,7 @@ systemctl is-active --quiet iptables
 if [ $? -eq 0 ]; then
     # Check if 8080 is not already allowed
     # FYI: This same command matches the rule added with ufw (-A ufw-user-input -p tcp -m tcp --dport 22 -j ACCEPT)
-    if [[ $(iptables --list-rules | grep -- "-p tcp" | grep -- "--dport 22" | grep -- "-j ACCEPT" | wc -l) -eq 0 ]]; then
+    if [[ $(iptables --list-rules | grep -- "-p tcp" | grep -- "--dport 8080" | grep -- "-j ACCEPT" | wc -l) -eq 0 ]]; then
         # ALlow it
         iptables -A INPUT -p tcp --dport 8080 --jump ACCEPT
     fi
